@@ -71,3 +71,26 @@
  Every major action prints to the terminal
  Implement ANSI color codes so each baker's text is distinct
  */
+
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <unistd.h>
+
+int main(){
+    int num_bakers;
+    
+    printf("Enter the number of bakers: \n");
+    
+    if (scanf("%d", &num_bakers) != 1) {
+        fprintf(stderr, "Error: Invalid input. Please enter a number.\n");
+        return 1;
+    }
+    
+    printf("Starting Bake Off with %d bakers...\n", num_bakers);
+}
+
+
