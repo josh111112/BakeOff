@@ -1,173 +1,51 @@
-/*
- Global resources:
- Mixers:            2
- Pantry:            1
- Fridges:           2
- Bowls:             3
- Spoons:            5
- Oven:              1
- */
-
-/*
- Data structure to hold ingredients list for:
- Cookies:                   Flour, Sugar, Milk, Butter
- Pancakes:                  Flour, Sugar, Baking soda, Salt, Egg, Milk, Butter
- Homemade pizza dough:      Yeast, Sugar, Salt
- Soft Pretzels:             Flour, Sugar, Salt, Yeast, Baking Soda, Egg
- Cinnamon rolls:            Flour, Sugar, Salt, Butter, Eggs, Cinnamon
- */
-
-/*
- Baker struct:
- BakerID (track who is doing what)
- Color code
- Ramsied flag
- */
-
-/*
- Counting semaphores:   Initlialize to count of specific resources (global resources)
- Mutexes:               Initiliaze to 1 for resources that allow single access like Pantry and Oven, Fridge 1 and Fridge 2
- */
-
-/*
- Baker must iterate throught every recipe on the list
- Ingredient Aquisition:
- Acquire Pantry mutex to get dry ingredients:               (1. Flour 2. Sugar 3. Yeast 4. Baking Soda 5. Salt 6. Cinnamon)
- Release Pantry mutex
- Acquire Fridge1 or Fridge2 mutex to get wet ingredients:   (1. Egg(s) 2. Milk 3. Butter)
- Release Fridge mutex
- Baker must only access one ingredient at a time
- */
-
-/*
- Ramsied Logic:
- Randomly check if current baker is the designated candidate to be ramsied
- If Ramsied, release all held semaphores and restart
- */
-
-/*
- Tool logic:
- When all ingredients are secured, baker must acquire: Bowl, Spoon, and Mixer
-    Careful for deadlock, order matters, one could be holding spoon and waiting for bowl, while other holds bowl and waits for spoon
- */
-
-/*
- Baking logic:
- Mix ingredients
- Acquire Oven Semapore
- "Cook"
- Release Oven semaphore
- */
-
-/*
- Cleanup:
- Release all tool semaphores (Bowl, Spoon, Mixer)
- */
-
-/*
- Output & Main Execution:
- Take user input for number of bakers
- Spawn a thread for each baker
- Every major action prints to the terminal
- Implement ANSI color codes so each baker's text is distinct
- */
-
-
-/* ===============================================================================
- ACTION ITEM LIST (TODO)
- ===============================================================================
- 
- 2. [ ] DEFINE GLOBAL SEMAPHORES:
-    - We need to declare the actual semaphore variables at the top of the file
-      so all threads can see them.
-    - sem_t mixer_sem;   (Count: 2)
-    - sem_t pantry_sem;  (Count: 1 - Binary/Mutex)
-    - sem_t fridge_sem[2]; (Count: 1 each - Two separate mutexes)
-    - sem_t bowl_sem;    (Count: 3)
-    - sem_t spoon_sem;   (Count: 5)
-    - sem_t oven_sem;    (Count: 1 - Binary/Mutex)
-
- PART 2: INITIALIZATION
- -------------------------------------------------------------------------------
- 3. [ ] INITIALIZE SEMAPHORES IN MAIN:
-    - Before creating threads, use sem_init() for all the variables above.
-    - Example: sem_init(&mixer_sem, 0, 2);
-
- PART 3: HELPER FUNCTIONS (To keep thread code clean)
- -------------------------------------------------------------------------------
- 4. [ ] CREATE "get_pantry_ingredients(int baker_id, Recipe* r)"
-    - Logic: sem_wait(pantry) -> loop through pantry ingredients -> print output -> sem_post(pantry).
-    - Remember: Only one baker in pantry at a time.
- 
- 5. [ ] CREATE "get_fridge_ingredients(int baker_id, Recipe* r)"
-    - Logic: Try to access Fridge 1. If busy, try Fridge 2.
-    - Use sem_trywait() or logic to pick a free fridge.
-    - Remember: Baker A can be in Fridge 1 while Baker B is in Fridge 2.
-
- 6. [ ] CREATE "get_tools_and_mix(int baker_id)"
-    - Logic: Acquire Bowl, Spoon, Mixer.
-    - CRITICAL: Define a strict order (e.g., Always Bowl -> then Spoon -> then Mixer) to prevent Deadlock.
- 
- PART 4: THE THREAD LOOP (The Core Logic)
- -------------------------------------------------------------------------------
- 7. [ ] IMPLEMENT "void *baker_routine(void *arg)"
-    - Cast arg back to BakerInfo*.
-    - Loop through all 5 recipes (using the global array from Part 1).
-    - Inside the loop:
-      a. Check for "Ramsied" status (Random chance if baker->ramsieAble is 1).
-      b. Call get_pantry_ingredients().
-      c. Call get_fridge_ingredients().
-      d. Call get_tools_and_mix().
-      e. sem_wait(oven) -> Bake -> sem_post(oven).
-      f. Release tools (sem_post mixer/bowl/spoon).
-
- PART 5: EXECUTION & CLEANUP
- -------------------------------------------------------------------------------
- 8. [ ] SPAWN THREADS IN MAIN:
-    - Loop num_bakers times.
-    - Create BakerInfo struct for each (malloc it).
-    - Assign colors (Use a simple array of string codes).
-    - Select one baker to set ramsieAble = 1.
-    - pthread_create().
-
- 9. [ ] CLEANUP:
-    - pthread_join() all threads.
-    - Free recipe memory.
-    - Destroy semaphores.
- ===============================================================================
- */
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
 
-// structs
-typedef struct {
-    int baker_id;
-    char *color_code;
-    int ramsieAble;
-} BakerInfo;
+// NOTE: will not run on Windows, this uses POSIX
 
+// ----------------------------------------------------------------------------------------- GLOBALS ----------------------------------------------------------------------------------------
+// structs
 typedef struct {
     int required_pantry[6];
     int required_fridge[3];
 } Recipe;
 
+typedef struct {
+    int baker_id;
+    char *color_code;
+    int ramsieAble;
+    int recipes_completed;
+    Recipe *current_recipe;
+} BakerInfo;
+
+// enums
 enum RecipeName { COOKIES, PANCAKES, PIZZA, PRETZELS, CINNAMON_ROLLS };
 enum PantryIng { FLOUR, SUGAR, YEAST, BAKING_SODA, SALT, CINNAMON };
 enum FridgeIng { EGGS, MILK, BUTTER };
 
+// lists
+const char *fridge_names[] = {"Eggs", "Milk", "Butter"};
+const char *pantry_names[] = {"Flour", "Sugar", "Yeast", "Baking Soda", "Salt", "Cinnamon"};
+const char *recipe_names[] = {"Cookies", "Pancakes", "Homemade Pizza", "Soft Pretzels", "Cinnamon Rolls"};
+
+sem_t *mixer_sem;
+sem_t *pantry_sem;
+sem_t *fridge_sem[2];
+sem_t *bowl_sem;
+sem_t *spoon_sem;
+sem_t *oven_sem;
+
 Recipe *all_recipes[5];
 
 
+// ----------------------------------------------------------------------------------- INITIALIZER FUNCTIONS -------------------------------------------------------------------------------
 int initializeRecipes() {
     // RECIPE 0: COOKIES
     // Ingredients: Flour, Sugar, Milk, Butter
     all_recipes[COOKIES] = malloc(sizeof(Recipe));
-    // Initialize all counts to 0 first to avoid garbage values
     for(int i = 0; i < 6; i++) all_recipes[COOKIES]->required_pantry[i] = 0;
     for(int i = 0; i < 3; i++) all_recipes[COOKIES]->required_fridge[i] = 0;
     
@@ -230,20 +108,228 @@ int initializeRecipes() {
     return 0;
 }
 
-int main(){
-    int num_bakers;
-    
-    printf("Enter the number of bakers: \n");
-    
-    if (scanf("%d", &num_bakers) != 1) {
-        fprintf(stderr, "Error: Invalid input. Please enter a number.\n");
-        return 1;
-    }
-    initializeRecipes();
-    printf("Starting Bake Off with %d bakers...\n", num_bakers);
-    
+int initializeSemaphores() {
+    sem_unlink("/mixer");
+    sem_unlink("/pantry");
+    sem_unlink("/fridge0");
+    sem_unlink("/fridge1");
+    sem_unlink("/bowl");
+    sem_unlink("/spoon");
+    sem_unlink("/oven");
+
+    mixer_sem = sem_open("/mixer", O_CREAT, 0644, 2);
+    pantry_sem = sem_open("/pantry", O_CREAT, 0644, 1);
+    fridge_sem[0] = sem_open("/fridge0", O_CREAT, 0644, 1);
+    fridge_sem[1] = sem_open("/fridge1", O_CREAT, 0644, 1);
+    bowl_sem = sem_open("/bowl", O_CREAT, 0644, 3);
+    spoon_sem = sem_open("/spoon", O_CREAT, 0644, 5);
+    oven_sem = sem_open("/oven", O_CREAT, 0644, 1);
     return 0;
 }
 
+// ----------------------------------------------------------------------------------- HELPER FUNCTIONS -------------------------------------------------------------------------------
+int getPantryIngredients(BakerInfo* baker, Recipe* r) {
+    sem_wait(pantry_sem);
+    printf("%sBaker %d is accessing the pantry...%s\n",
+               baker->color_code,
+               baker->baker_id,
+               "\033[0m");
 
+    for (int i = 0; i < 6; i++) {
+        // Check if the recipe requires this ingredient
+        if (r->required_pantry[i] == 1) {
+            
+            printf("%sBaker %d grabbed %s%s\n",
+                   baker->color_code,
+                   baker->baker_id,
+                   pantry_names[i],
+                   "\033[0m");
+                   
+            usleep(100000);
+        }
+    }
+    sem_post(pantry_sem);
+    return 0;
+}
 
+int getFridgeIngredients(BakerInfo* baker, Recipe* r) {
+    // fridge choice logic
+    int fridge_id = -1;
+    if (sem_trywait(fridge_sem[0]) == 0) {
+        fridge_id = 0;
+    } else {
+        sem_wait(fridge_sem[1]);
+        fridge_id = 1;
+    }
+
+    printf("%sBaker %d is accessing Fridge %d...%s\n",
+           baker->color_code, baker->baker_id, fridge_id, "\033[0m");
+
+    for (int i = 0; i < 3; i++) {
+        if (r->required_fridge[i] == 1) {
+            printf("%sBaker %d grabbed %s from Fridge %d%s\n",
+                   baker->color_code,
+                   baker->baker_id,
+                   fridge_names[i],
+                   fridge_id,
+                   "\033[0m");
+            usleep(100000);
+        }
+    }
+
+    sem_post(fridge_sem[fridge_id]);
+    return 0;
+}
+void printGordon() {
+    const char *art[] = {
+        "⠁⡼⠋⠀⣆⠀⠀⣰⣿⣫⣾⢿⣿⣿⠍⢠⠠⠀⠀⢀⠰⢾⣺⣻⣿⣿⣿⣷⡀⠀",
+        "⣥⠀⠀⠀⠁⠀⠠⢻⢬⠁⣠⣾⠛⠁⠀⠀⠀⠀⠀⠀⠀⠐⠱⠏⡉⠙⣿⣿⡇⠀",
+        "⢳⠀⢰⡖⠀⠀⠈⠀⣺⢰⣿⢻⣾⣶⣿⣿⣶⣶⣤⣤⣴⣾⣿⣷⣼⡆⢸⣿⣧⠀",
+        "⠈⠀⠜⠈⣀⣔⣦⢨⣿⣿⣿⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣅⣼⠛⢹⠀",
+        "⠀⠀⠀⠀⢋⡿⡿⣯⣭⡟⣟⣿⣿⣽⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⡘⠀",
+        "⡀⠐⠀⠀⠀⣿⣯⡿⣿⣿⣿⣯⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠋⣉⢽⣿⡆⠀⠀",
+        "⢳⠀⠄⠀⢀⣿⣿⣿⣿⣿⣿⣿⠙⠉⠉⠉⠛⣻⢛⣿⠛⠃⠀⠐⠛⠻⣿⡇⠀⠀",
+        "⣾⠄⠀⠀⢸⣿⣿⡿⠟⠛⠁⢀⠀⢀⡄⣀⣠⣾⣿⣿⡠⣴⣎⣀⣠⣠⣿⡇⠀⠀",
+        "⣧⠀⣴⣄⣽⣿⣿⣿⣶⣶⣖⣶⣬⣾⣿⣾⣿⣿⣿⣿⣽⣿⣿⣿⣿⣿⣿⡇⠀⠀",
+        "⣿⣶⣈⡯⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠋⣹⢧⣿⣿⣿⣄⠙⢿⣿⣿⣿⠇⠀⠀",
+        "⠹⣿⣿⣧⢌⢽⣻⢿⣯⣿⣿⣿⣿⠟⣠⡘⠿⠟⠛⠛⠟⠛⣧⡈⠻⣾⣿⠀⠀⠀",
+        "⠀⠈⠉⣷⡿⣽⠶⡾⢿⣿⣿⣿⢃⣤⣿⣷⣤⣤⣄⣄⣠⣼⡿⢷⢀⣿⡏⠀⠀⠀",
+        "⠀⠀⢀⣿⣷⠌⣈⣏⣝⠽⡿⣷⣾⣏⣀⣉⣉⣀⣀⣀⣠⣠⣄⡸⣾⣿⠃⠀⠀⠀",
+        "⠀⣰⡿⣿⣧⡐⠄⠱⣿⣺⣽⢟⣿⣿⢿⣿⣍⠉⢀⣀⣐⣼⣯⡗⠟⡏⠀⠀⠀⠀",
+        "⣰⣿⠀⣿⣿⣴⡀⠂⠘⢹⣭⡂⡚⠿⢿⣿⣿⣿⡿⢿⢿⡿⠿⢁⣴⣿⣷⣶⣦⣤"
+    };
+
+    for (int i = 0; i < 15; i++) {
+        printf("%s\n", art[i]);
+    }
+}
+void *baker_routine(void *arg) {
+    BakerInfo *baker = (BakerInfo *)arg;
+    
+    while (baker->recipes_completed < 5) {
+        baker->current_recipe = all_recipes[baker->recipes_completed];
+        
+        printf("%sBaker %d is starting recipe %s...\033[0m\n",
+               baker->color_code, baker->baker_id, recipe_names[baker->recipes_completed]);
+
+        getPantryIngredients(baker, baker->current_recipe);
+        getFridgeIngredients(baker, baker->current_recipe);
+        
+        if (baker->ramsieAble && (rand() % 100 < 20)) {
+            printGordon();
+            printf("RAMSAY: WHERE'S THE LAMB SAUCE\?\?!? Baker %d is restarting!\n", baker->baker_id);
+            baker->current_recipe = NULL;
+
+        }
+        // Order is necessary to ensure there is no deadlock
+        sem_wait(bowl_sem);
+        sem_wait(spoon_sem);
+        sem_wait(mixer_sem);
+        sem_wait(oven_sem);
+        
+        // Check if he has been ramsied
+        if (baker->current_recipe != NULL) {
+            printf("%sBaker %d is baking recipe %s!\033[0m\n",
+                   baker->color_code, baker->baker_id, recipe_names[baker->recipes_completed]);
+            sleep(1); // Baking time
+            baker->recipes_completed++;
+        } else {
+            printf("%s\033[7m BAKER %d IS AN IDIOT SANDWICH! \033[0m\n",
+                       baker->color_code, baker->baker_id);
+        }
+        
+        sem_post(oven_sem);
+
+        sem_post(mixer_sem);
+        sem_post(spoon_sem);
+        sem_post(bowl_sem);
+        
+        usleep(100000);
+    }
+    
+    printf("%s>>> Baker %d has finished all recipes! <<<\033[0m\n",
+           baker->color_code, baker->baker_id);
+    
+    return NULL;
+}
+
+// ----------------------------------------------------------------------------------- SETUP -------------------------------------------------------------------------------
+int main() {
+    srand(time(NULL));
+    
+    printf("Enter the number of bakers: \n");
+    int num_bakers;
+    if (scanf("%d", &num_bakers) != 1) {
+        fprintf(stderr, "Error: Invalid input.\n");
+        return 1;
+    }
+
+    // Initialize resources
+    initializeRecipes();
+    initializeSemaphores();
+
+    printf("Starting Bake Off with %d bakers\n", num_bakers);
+    printf("--------------------------------------------------\n");
+    // Arrays to hold thread IDs and baker data
+    pthread_t threads[num_bakers];
+    BakerInfo *bakers[num_bakers];
+
+    // Choose a victim
+    int victim_id = rand() % num_bakers;
+    
+    for (int i = 0; i < num_bakers; i++) {
+        bakers[i] = malloc(sizeof(BakerInfo));
+        bakers[i]->baker_id = i;
+        bakers[i]->recipes_completed = 0;
+        bakers[i]->current_recipe = NULL;
+        
+        // Dynamic color assignment
+        int color_val = 20 + (i * 210 / num_bakers);
+        bakers[i]->color_code = malloc(20 * sizeof(char));
+        sprintf(bakers[i]->color_code, "\033[38;5;%dm", color_val);
+
+        if (i == victim_id) {
+            bakers[i]->ramsieAble = 1;
+            printf("Note: Baker %d is being watched by Chef Ramsay...\n", i);
+        } else {
+            bakers[i]->ramsieAble = 0;
+        }
+
+        if (pthread_create(&threads[i], NULL, baker_routine, bakers[i]) != 0) {
+            perror("Failed to create thread");
+            return 1;
+        }
+    }
+    
+    
+    // CLEANUP
+    // Wait for all baker threads to finish
+    for (int i = 0; i < num_bakers; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    printf("--------------------------------------------------\n");
+    printf("All bakers have finished baking!\n");
+
+    for (int i = 0; i < num_bakers; i++) {
+        free(bakers[i]);
+    }
+
+    sem_close(mixer_sem);
+    sem_close(pantry_sem);
+    sem_close(fridge_sem[0]);
+    sem_close(fridge_sem[1]);
+    sem_close(bowl_sem);
+    sem_close(spoon_sem);
+    sem_close(oven_sem);
+
+    sem_unlink("/mixer");
+    sem_unlink("/pantry");
+    sem_unlink("/fridge0");
+    sem_unlink("/fridge1");
+    sem_unlink("/bowl");
+    sem_unlink("/spoon");
+    sem_unlink("/oven");
+
+    return 0;
+}
